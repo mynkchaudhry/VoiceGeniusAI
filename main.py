@@ -19,11 +19,13 @@ logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("pymongo").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-origins = [
-    "http://localhost:8000",  # React/Vue/Next.js running locally
-    "http://127.0.0.1:5500",
-    "https://voicegeniusai.onrender.com/"
-]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"], 
+)
 
 # Load environment variables
 load_dotenv()
