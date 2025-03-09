@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+pymupdf4llm
+openai
+pymongo
+uvicorn 
+python-multipart
+requests
+python-dotenv
