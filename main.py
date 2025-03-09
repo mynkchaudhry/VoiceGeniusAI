@@ -27,7 +27,7 @@ origins = [
 # Load environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://mayankchaudhary:hvS82R3OLP7KHj3Q@cluster0.x5h45.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGODB_URI = os.getenv("MONGODB_URI")
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
