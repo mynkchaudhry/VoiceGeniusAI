@@ -19,14 +19,6 @@ logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("pymongo").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"], 
-)
-
 # Load environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -60,12 +52,13 @@ except Exception as e:
     # Continue execution, but log the error
 
 app = FastAPI(title="Outbound Call Persona Generator")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Specifies which domains can access your API
+    allow_origins=["*"],  
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],  
+    allow_headers=["*"], 
 )
 
 
