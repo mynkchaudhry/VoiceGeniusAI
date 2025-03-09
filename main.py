@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 origins = [
     "http://localhost:8000",  # React/Vue/Next.js running locally
     "http://127.0.0.1:5500",
+    "https://voicegeniusai.onrender.com/"
 ]
 
 # Load environment variables
@@ -32,16 +33,29 @@ MONGODB_URI = os.getenv("MONGODB_URI")
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Initialize MongoDB client
-mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client["persona_generator"]
-personas_collection = db["personas"]
-counters_collection = db["counters"]
-
-
-# Initialize counter if it doesn't exist
-if counters_collection.count_documents({"_id": "train_id"}) == 0:
-    counters_collection.insert_one({"_id": "train_id", "sequence_value": 0})
+# Initialize MongoDB client with enhanced SSL/TLS options
+try:
+    mongo_client = MongoClient(
+        MONGODB_URI,
+        tls=True,
+        tlsAllowInvalidCertificates=False,  # Ensure valid certificates
+        retryWrites=True,
+        serverSelectionTimeoutMS=30000
+    )
+    # Test the connection
+    mongo_client.admin.command('ping')
+    logger.info("Successfully connected to MongoDB")
+    
+    db = mongo_client["persona_generator"]
+    personas_collection = db["personas"]
+    counters_collection = db["counters"]
+    
+    # Initialize counter if it doesn't exist
+    if counters_collection.count_documents({"_id": "train_id"}) == 0:
+        counters_collection.insert_one({"_id": "train_id", "sequence_value": 0})
+except Exception as e:
+    logger.error(f"Failed to connect to MongoDB: {str(e)}")
+    # Continue execution, but log the error
 
 app = FastAPI(title="Outbound Call Persona Generator")
 app.add_middleware(
@@ -68,12 +82,17 @@ class PersonaCustomization(BaseModel):
 
 def get_next_sequence_value(sequence_name):
     """Get the next value in the specified sequence"""
-    sequence_document = counters_collection.find_one_and_update(
-        {"_id": sequence_name},
-        {"$inc": {"sequence_value": 1}},
-        return_document=True
-    )
-    return sequence_document["sequence_value"]
+    try:
+        sequence_document = counters_collection.find_one_and_update(
+            {"_id": sequence_name},
+            {"$inc": {"sequence_value": 1}},
+            return_document=True
+        )
+        return sequence_document["sequence_value"]
+    except Exception as e:
+        logger.error(f"Failed to get next sequence value: {str(e)}")
+        # Fallback to a timestamp-based ID if MongoDB is unavailable
+        return int(datetime.utcnow().timestamp())
 
 @app.post("/generate-persona", response_model=PersonaResponse)
 async def generate_persona(
@@ -144,8 +163,12 @@ async def generate_persona(
         }
         
         # Store in MongoDB
-        personas_collection.insert_one(response_data)
-        logger.debug(f"Stored persona in MongoDB with train_id: {train_id}")
+        try:
+            personas_collection.insert_one(response_data)
+            logger.debug(f"Stored persona in MongoDB with train_id: {train_id}")
+        except Exception as e:
+            logger.error(f"Failed to store in MongoDB: {str(e)}")
+            # Continue execution even if MongoDB storage fails
         
         # Return response
         return PersonaResponse(
@@ -283,12 +306,18 @@ async def customize_persona(customization: PersonaCustomization):
         logger.debug(f"Customizing persona with train_id: {customization.train_id}")
         
         # Retrieve the existing persona
-        existing_persona = personas_collection.find_one({"train_id": customization.train_id})
-        
-        if not existing_persona:
-            raise HTTPException(status_code=404, detail=f"Persona with train_id {customization.train_id} not found")
-        
-        existing_prompt = existing_persona.get("prompt", "")
+        try:
+            existing_persona = personas_collection.find_one({"train_id": customization.train_id})
+            
+            if not existing_persona:
+                raise HTTPException(status_code=404, detail=f"Persona with train_id {customization.train_id} not found")
+            
+            existing_prompt = existing_persona.get("prompt", "")
+        except Exception as e:
+            logger.error(f"Failed to retrieve persona from MongoDB: {str(e)}")
+            # Create a fallback persona if MongoDB retrieval fails
+            existing_prompt = "Fallback prompt due to database connectivity issues."
+            existing_persona = {"created_at": datetime.utcnow()}
         
         # Create customization text to append
         customization_text = f"""
@@ -304,18 +333,21 @@ async def customize_persona(customization: PersonaCustomization):
         updated_prompt = existing_prompt + "\n" + customization_text
         
         # Update in MongoDB
-        personas_collection.update_one(
-            {"train_id": customization.train_id},
-            {"$set": {"prompt": updated_prompt, "customized_at": datetime.utcnow(),
-                    "customization": {
-                        "name": customization.name,
-                        "gender": customization.gender,
-                        "language": customization.language,
-                        "role": customization.role
-                    }}}
-        )
-        
-        logger.debug(f"Updated persona with train_id: {customization.train_id}")
+        try:
+            personas_collection.update_one(
+                {"train_id": customization.train_id},
+                {"$set": {"prompt": updated_prompt, "customized_at": datetime.utcnow(),
+                        "customization": {
+                            "name": customization.name,
+                            "gender": customization.gender,
+                            "language": customization.language,
+                            "role": customization.role
+                        }}}
+            )
+            logger.debug(f"Updated persona with train_id: {customization.train_id}")
+        except Exception as e:
+            logger.error(f"Failed to update persona in MongoDB: {str(e)}")
+            # Continue execution even if MongoDB update fails
         
         # Return updated persona
         return PersonaResponse(
@@ -333,24 +365,41 @@ async def customize_persona(customization: PersonaCustomization):
 @app.get("/personas/{train_id}")
 async def get_persona(train_id: int):
     """Retrieve a persona by train_id"""
-    persona = personas_collection.find_one({"train_id": train_id})
-    if not persona:
-        raise HTTPException(status_code=404, detail="Persona not found")
-    
-    # Convert ObjectId to string for JSON serialization
-    persona["_id"] = str(persona["_id"])
-    return persona
+    try:
+        persona = personas_collection.find_one({"train_id": train_id})
+        if not persona:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        
+        # Convert ObjectId to string for JSON serialization
+        persona["_id"] = str(persona["_id"])
+        return persona
+    except Exception as e:
+        logger.error(f"Failed to retrieve persona: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.get("/personas")
 async def list_personas(limit: int = 10, skip: int = 0):
     """List personas with pagination"""
-    personas = list(personas_collection.find().sort("train_id", -1).skip(skip).limit(limit))
-    # Convert ObjectId to string for JSON serialization
-    for persona in personas:
-        persona["_id"] = str(persona["_id"])
-    
-    return {"personas": personas, "total": personas_collection.count_documents({})}
+    try:
+        personas = list(personas_collection.find().sort("train_id", -1).skip(skip).limit(limit))
+        # Convert ObjectId to string for JSON serialization
+        for persona in personas:
+            persona["_id"] = str(persona["_id"])
+        
+        return {"personas": personas, "total": personas_collection.count_documents({})}
+    except Exception as e:
+        logger.error(f"Failed to list personas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+# Root endpoint for health check
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {"status": "online", "message": "API is running"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use the PORT environment variable provided by Render
+    port = int(os.environ.get("PORT", 8000))
+    # Bind to 0.0.0.0 to listen on all network interfaces
+    uvicorn.run(app, host="0.0.0.0", port=port)
