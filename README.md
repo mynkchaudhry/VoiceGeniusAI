@@ -1,7 +1,7 @@
 # VoiceGenius AI
 
 <div align="center">
-  <img src="https://via.placeholder.com/200x200.png?text=VG" alt="VoiceGenius AI Logo" width="200"/>
+  <img src="image.png" alt="VoiceGenius AI Logo" width="200"/>
   <p><em>Advanced Conversational Intelligence for Enterprise Communication</em></p>
   
   ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
